@@ -59,13 +59,16 @@ def handle_audio_request():
     output_path = Path(ABS_DOWNLOADS_PATH) / filename
 
     # yt-dlp configuration for downloading best audio and converting to mp3
-    # "The page needs to be reloaded" = YouTube SABR bot-check for datacenter IPs.
-    # Fix: use tv_embedded player client — it bypasses the SABR reload verification
-    # because it's an embedded player that doesn't go through that check flow.
-    # Cookies authenticate the session; web_creator is a fallback.
+    #
+    # Client selection rationale:
+    #   - web        → full DASH formats, but triggers SABR "page needs to be reloaded"
+    #   - tv_embedded/android/ios → bypass SABR, but NO audio-only DASH → format not available
+    #   - web_embedded → YouTube iframe embed player: full DASH (audio-only included)
+    #                    AND does NOT go through the SABR reload check. Best of both worlds.
+    #   - android_vr   → fallback: also bypasses SABR, has some audio formats
     cookie_file = "cookies.txt" if os.path.exists("cookies.txt") else None
     ydl_opts = {
-        'format': 'bestaudio/best',
+        'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best',
         'outtmpl': str(output_path),
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
@@ -74,7 +77,7 @@ def handle_audio_request():
         }],
         'extractor_args': {
             'youtube': {
-                'player_client': ['tv_embedded', 'web_creator'],
+                'player_client': ['web_embedded', 'android_vr'],
             }
         },
         'cookiefile': cookie_file,
