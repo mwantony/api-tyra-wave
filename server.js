@@ -4,9 +4,19 @@ const ffmpeg = require('@ffmpeg-installer/ffmpeg');
 const ffprobe = require('@ffprobe-installer/ffprobe');
 const path = require('path');
 const fs = require('fs');
+const cors = require('cors'); 
 
 const app = express();
 const PORT = 3000;
+
+app.use(cors({
+    origin: '*', // Permite requisições de qualquer origem (ou coloque 'https://tyra-wave.vercel.app' para restringir)
+    methods: ['GET', 'POST', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization']
+}));
+
+// Garante que requisições preflight (OPTIONS) sejam respondidas corretamente
+app.options('*', cors());
 
 const ytDlpPath = path.join(__dirname, 'yt-dlp.exe');
 const downloadsDir = path.join(__dirname, 'temp_downloads');
