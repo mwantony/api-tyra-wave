@@ -3,7 +3,8 @@
 # Curated by Alperen Sümeroğlu for clean and efficient deployment
 
 Flask>=3.0.0
-yt-dlp>=2024.1.1
+flask-cors
+yt-dlp>=2025.1.1
 gunicorn>=21.2.0
 
 # System requirement (install manually if missing)

@@ -9,6 +9,7 @@ import os
 import secrets
 import threading
 from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
 from uuid import uuid4
 from pathlib import Path
 import yt_dlp
@@ -17,6 +18,18 @@ from constants import *
 
 # Initialize the Flask application
 app = Flask(__name__)
+CORS(app)  # Permite chamadas do Vercel e localhost
+
+
+# Garante cabeçalhos mesmo em erros 500
+@app.after_request
+def after_request(response):
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, OPTIONS"
+    return response
+
+
 Path(ABS_DOWNLOADS_PATH).mkdir(parents=True, exist_ok=True)
 
 
@@ -48,6 +61,12 @@ def handle_audio_request():
             'preferredcodec': 'mp3',
             'preferredquality': '192'
         }],
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios'],
+                'player_skip': ['webpage', 'configs']
+            }
+        },
         'quiet': True
     }
 
