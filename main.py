@@ -59,9 +59,11 @@ def handle_audio_request():
     output_path = Path(ABS_DOWNLOADS_PATH) / filename
 
     # yt-dlp configuration for downloading best audio and converting to mp3
+    # Uses mobile clients to bypass bot detection; cookiefile used if present.
+    # player_skip is intentionally omitted — skipping configs prevents format enumeration.
     cookie_file = "cookies.txt" if os.path.exists("cookies.txt") else None
     ydl_opts = {
-        'format': 'bestaudio/best',
+        'format': 'bestaudio[ext=m4a]/bestaudio[ext=webm]/bestaudio/best[height<=480]/best',
         'outtmpl': str(output_path),
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
@@ -71,11 +73,11 @@ def handle_audio_request():
         'extractor_args': {
             'youtube': {
                 'player_client': ['ios', 'android', 'mweb'],
-                'player_skip': ['webpage', 'configs']
             }
         },
         'cookiefile': cookie_file,
-        'quiet': True
+        'quiet': True,
+        'no_warnings': True,
     }
 
     try:
