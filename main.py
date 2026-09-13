@@ -59,9 +59,10 @@ def handle_audio_request():
     output_path = Path(ABS_DOWNLOADS_PATH) / filename
 
     # yt-dlp configuration for downloading best audio and converting to mp3
-    # With valid cookies, yt-dlp authenticates as a real user via the standard web client,
-    # which has full format enumeration. Mobile client spoofing is NOT used here because
-    # it restricts the available formats and causes "Requested format is not available".
+    # "The page needs to be reloaded" = YouTube SABR bot-check for datacenter IPs.
+    # Fix: use tv_embedded player client — it bypasses the SABR reload verification
+    # because it's an embedded player that doesn't go through that check flow.
+    # Cookies authenticate the session; web_creator is a fallback.
     cookie_file = "cookies.txt" if os.path.exists("cookies.txt") else None
     ydl_opts = {
         'format': 'bestaudio/best',
@@ -71,7 +72,13 @@ def handle_audio_request():
             'preferredcodec': 'mp3',
             'preferredquality': '192'
         }],
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['tv_embedded', 'web_creator'],
+            }
+        },
         'cookiefile': cookie_file,
+        'retries': 3,
         'quiet': True,
         'no_warnings': True,
     }
