@@ -5,6 +5,7 @@ Clean, modular Flask-based backend for downloading and serving YouTube audio tra
 Utilizes yt-dlp and FFmpeg for conversion and token-based access management.
 """
 
+import os
 import secrets
 import threading
 from flask import Flask, request, jsonify, send_from_directory
@@ -16,6 +17,7 @@ from constants import *
 
 # Initialize the Flask application
 app = Flask(__name__)
+Path(ABS_DOWNLOADS_PATH).mkdir(parents=True, exist_ok=True)
 
 
 @app.route("/", methods=["GET"])
@@ -82,7 +84,7 @@ def download_audio():
 
     try:
         filename = access_manager.get_audio_file(token)
-        return send_from_directory(ABS_DOWNLOADS_PATH, filename=filename, as_attachment=True)
+        return send_from_directory(ABS_DOWNLOADS_PATH, filename, as_attachment=True)
     except FileNotFoundError:
         return jsonify(error="Requested file could not be found on the server."), NOT_FOUND
 
@@ -106,15 +108,18 @@ def _generate_token_response(filename: str):
 def main():
     """
     Starts the background thread for automatic token cleanup
-    and launches the Flask development server.
+    and launches the Flask server.
     """
     token_cleaner_thread = threading.Thread(
         target=access_manager.manage_tokens,
         daemon=True
     )
     token_cleaner_thread.start()
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))
+    debug_mode = os.environ.get("FLASK_DEBUG", "false").lower() == "true"
+    app.run(host="0.0.0.0", port=port, debug=debug_mode)
 
 
 if __name__ == "__main__":
     main()
+
