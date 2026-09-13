@@ -8,13 +8,19 @@ Utilizes yt-dlp and FFmpeg for conversion and token-based access management.
 import os
 import secrets
 import threading
+from pathlib import Path
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 from uuid import uuid4
-from pathlib import Path
 import yt_dlp
 import access_manager
 from constants import *
+
+# Se houver cookies configurados na variável de ambiente do Render, salva para o yt-dlp
+youtube_cookies_env = os.environ.get("YOUTUBE_COOKIES")
+if youtube_cookies_env:
+    with open("cookies.txt", "w", encoding="utf-8") as f:
+        f.write(youtube_cookies_env)
 
 # Initialize the Flask application
 app = Flask(__name__)
@@ -53,6 +59,7 @@ def handle_audio_request():
     output_path = Path(ABS_DOWNLOADS_PATH) / filename
 
     # yt-dlp configuration for downloading best audio and converting to mp3
+    cookie_file = "cookies.txt" if os.path.exists("cookies.txt") else None
     ydl_opts = {
         'format': 'bestaudio/best',
         'outtmpl': str(output_path),
@@ -63,10 +70,11 @@ def handle_audio_request():
         }],
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios'],
+                'player_client': ['ios', 'android', 'mweb'],
                 'player_skip': ['webpage', 'configs']
             }
         },
+        'cookiefile': cookie_file,
         'quiet': True
     }
 
