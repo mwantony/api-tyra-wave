@@ -57,12 +57,31 @@ function extractVideoId(url) {
     return match ? match[1] : null;
 }
 
+const cookiesPath = path.join(__dirname, 'cookies.txt');
+
+function getActiveCookiesPath() {
+    if (process.env.YOUTUBE_COOKIES && process.env.YOUTUBE_COOKIES.trim().length > 10) {
+        try {
+            fs.writeFileSync(cookiesPath, process.env.YOUTUBE_COOKIES.trim(), 'utf-8');
+            return cookiesPath;
+        } catch (err) {
+            console.error('[ERRO] Falha ao gravar cookies a partir de YOUTUBE_COOKIES:', err.message);
+        }
+    }
+    if (fs.existsSync(cookiesPath) && fs.statSync(cookiesPath).size > 10) {
+        return cookiesPath;
+    }
+    return null;
+}
+
 app.get('/', (req, res) => {
+    const hasCookies = !!getActiveCookiesPath();
     res.json({
         status: 'online',
         service: 'api-tyra-wave',
         platform: process.platform,
-        ytDlpReady: fs.existsSync(binaryPath)
+        ytDlpReady: fs.existsSync(binaryPath),
+        cookiesConfigured: hasCookies
     });
 });
 
@@ -89,6 +108,7 @@ app.get('/download', async (req, res) => {
 
     console.log(`[INFO] Iniciando download do vídeo: ${videoId} com executável: ${currentYtDlpPath}`);
 
+    const activeCookies = getActiveCookiesPath();
     const args = [
         `https://www.youtube.com/watch?v=${videoId}`,
         '--js-runtimes', 'node',
@@ -101,6 +121,14 @@ app.get('/download', async (req, res) => {
         '--force-overwrites'
     ];
 
+    if (activeCookies) {
+        console.log(`[INFO] Usando arquivo de cookies do YouTube.`);
+        args.push('--cookies', activeCookies);
+    } else {
+        // Tenta clientes alternativos para mitigar bloqueios em IPs de datacenter
+        args.push('--extractor-args', 'youtube:player_client=android,web');
+    }
+
     const child = spawn(currentYtDlpPath, args);
 
     // Evita crash de Unhandled 'error' event caso o spawn falhe
@@ -111,8 +139,11 @@ app.get('/download', async (req, res) => {
         }
     });
 
+    let errorOutput = '';
     child.stderr.on('data', (data) => {
-        console.log(`[yt-dlp]: ${data.toString()}`);
+        const text = data.toString();
+        errorOutput += text;
+        console.log(`[yt-dlp]: ${text}`);
     });
 
     req.on('close', () => {
@@ -133,7 +164,18 @@ app.get('/download', async (req, res) => {
         } else {
             console.error(`[ERRO] Processo do yt-dlp encerrou com código: ${code}`);
             if (!res.headersSent) {
-                res.status(500).json({ error: 'Falha ao converter ou baixar o áudio do vídeo.' });
+                if (errorOutput.includes('Sign in to confirm you’re not a bot')) {
+                    res.status(403).json({
+                        error: 'O YouTube bloqueou a requisição exigindo confirmação de bot.',
+                        motivo: 'Servidores de hospedagem em nuvem (como Render) utilizam IPs de datacenter que o YouTube bloqueia sem autenticação.',
+                        solucao: 'Adicione suas cookies do YouTube na variável de ambiente YOUTUBE_COOKIES no painel do Render.'
+                    });
+                } else {
+                    res.status(500).json({
+                        error: 'Falha ao converter ou baixar o áudio do vídeo.',
+                        details: errorOutput.trim() || `Código de saída: ${code}`
+                    });
+                }
             }
         }
     });
