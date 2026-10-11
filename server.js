@@ -5,6 +5,7 @@ const ffprobe = require('@ffprobe-installer/ffprobe');
 const path = require('path');
 const fs = require('fs');
 const cors = require('cors');
+const { ensureBinaries, binaryPath } = require('./setup-binaries');
 
 const app = express();
 // Usa a porta atribuída pelo serviço de hospedagem (ex: Render) ou a porta 3000 localmente
@@ -17,15 +18,23 @@ app.use(cors({
     allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
-const ytDlpPath = path.join(__dirname, 'yt-dlp.exe');
 const downloadsDir = path.join(__dirname, 'temp_downloads');
 
 if (!fs.existsSync(downloadsDir)) {
     fs.mkdirSync(downloadsDir, { recursive: true });
 }
 
-// Extrai a pasta onde o ffmpeg.exe está instalado
+// Extrai a pasta onde o ffmpeg está instalado
 const ffmpegDir = path.dirname(ffmpeg.path);
+
+// Garante permissão de execução para o ffmpeg no Linux
+if (process.platform !== 'win32' && fs.existsSync(ffmpeg.path)) {
+    try {
+        fs.chmodSync(ffmpeg.path, 0o755);
+    } catch (err) {
+        console.warn('Aviso ao ajustar permissão do ffmpeg:', err.message);
+    }
+}
 
 // Copia o ffprobe para a mesma pasta do ffmpeg (se necessário)
 const ffprobeSource = ffprobe.path;
@@ -34,6 +43,9 @@ const ffprobeDestination = path.join(ffmpegDir, process.platform === 'win32' ? '
 if (!fs.existsSync(ffprobeDestination) && fs.existsSync(ffprobeSource)) {
     try {
         fs.copyFileSync(ffprobeSource, ffprobeDestination);
+        if (process.platform !== 'win32') {
+            fs.chmodSync(ffprobeDestination, 0o755);
+        }
     } catch (err) {
         console.error('Erro ao copiar ffprobe:', err.message);
     }
@@ -45,7 +57,16 @@ function extractVideoId(url) {
     return match ? match[1] : null;
 }
 
-app.get('/download', (req, res) => {
+app.get('/', (req, res) => {
+    res.json({
+        status: 'online',
+        service: 'api-tyra-wave',
+        platform: process.platform,
+        ytDlpReady: fs.existsSync(binaryPath)
+    });
+});
+
+app.get('/download', async (req, res) => {
     const rawUrl = req.query.url;
     const videoId = extractVideoId(rawUrl);
 
@@ -53,19 +74,20 @@ app.get('/download', (req, res) => {
         return res.status(400).json({ error: 'URL do YouTube inválida.' });
     }
 
-    // Detecta se está rodando no Windows ou no Linux (Render)
-    const isWindows = process.platform === 'win32';
-    const currentYtDlpPath = isWindows ? ytDlpPath : 'yt-dlp';
-
-    if (isWindows && !fs.existsSync(ytDlpPath)) {
-        return res.status(500).json({ error: 'O arquivo yt-dlp.exe não foi encontrado na raiz do projeto!' });
+    // Garante que o binário adequado (Windows ou Linux) esteja presente e executável
+    try {
+        await ensureBinaries();
+    } catch (err) {
+        return res.status(500).json({ error: 'Binário yt-dlp não disponível no servidor: ' + err.message });
     }
+
+    const currentYtDlpPath = fs.existsSync(binaryPath) ? binaryPath : (process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
 
     const timestamp = Date.now();
     const outputTemplate = path.join(downloadsDir, `${videoId}_${timestamp}.%(ext)s`);
     const finalMp3Path = path.join(downloadsDir, `${videoId}_${timestamp}.mp3`);
 
-    console.log(`[INFO] Iniciando download do vídeo: ${videoId}`);
+    console.log(`[INFO] Iniciando download do vídeo: ${videoId} com executável: ${currentYtDlpPath}`);
 
     const args = [
         `https://www.youtube.com/watch?v=${videoId}`,
@@ -81,8 +103,23 @@ app.get('/download', (req, res) => {
 
     const child = spawn(currentYtDlpPath, args);
 
+    // Evita crash de Unhandled 'error' event caso o spawn falhe
+    child.on('error', (err) => {
+        console.error(`[ERRO CRÍTICO] Falha ao iniciar processo ${currentYtDlpPath}:`, err);
+        if (!res.headersSent) {
+            res.status(500).json({ error: `Falha ao executar yt-dlp: ${err.message}` });
+        }
+    });
+
     child.stderr.on('data', (data) => {
         console.log(`[yt-dlp]: ${data.toString()}`);
+    });
+
+    req.on('close', () => {
+        if (!child.killed && child.exitCode === null) {
+            console.log(`[INFO] Conexão cancelada pelo cliente para o vídeo ${videoId}. Encerrando processo...`);
+            child.kill('SIGTERM');
+        }
     });
 
     child.on('close', (code) => {
@@ -102,6 +139,16 @@ app.get('/download', (req, res) => {
     });
 });
 
-app.listen(PORT, () => {
-    console.log(`Servidor rodando na porta ${PORT}`);
-});
+// Inicialização
+ensureBinaries()
+    .then(() => {
+        app.listen(PORT, () => {
+            console.log(`Servidor rodando na porta ${PORT}`);
+        });
+    })
+    .catch((err) => {
+        console.error('[ERRO] Falha ao verificar binários na inicialização:', err);
+        app.listen(PORT, () => {
+            console.log(`Servidor rodando na porta ${PORT} (aviso: yt-dlp pendente)`);
+        });
+    });

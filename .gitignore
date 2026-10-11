@@ -4,4 +4,7 @@ __pycache__/
 .DS_Store
 cookies.txt
 downloads/
+temp_downloads/
 node_modules
+yt-dlp
+*.tmp
